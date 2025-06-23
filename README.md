@@ -1,173 +1,389 @@
-# Spring Boot Actuator Guide for Kubernetes Practice Application
+# 🚀 Spring Boot JAR Deployment on Kubernetes with Minikube
 
-This repository contains a Spring Boot application with Actuator enabled, along with resources to help you understand and use Spring Boot Actuator.
+This guide shows you how to set up a local Kubernetes environment with Minikube and deploy a Java (Spring Boot) JAR application from scratch—including environment config, secrets, and automatic pod scaling.
 
-## What is Spring Boot Actuator?
+---
 
-Spring Boot Actuator is a sub-project of Spring Boot that adds production-ready features to your application. It provides endpoints that help you monitor and manage your application when it's running in production.
+## 📋 Table of Contents
 
-## Resources in this Repository
+* [1. Prerequisites](#1-prerequisites)
+* [2. Install Minikube & kubectl](#2-install-minikube--kubectl)
+* [3. Start Minikube](#3-start-minikube)
+* [4. Prepare Your Application JAR & Config](#4-prepare-your-application-jar--config)
+* [5. Create Kubernetes YAML Manifests](#5-create-kubernetes-yaml-manifests)
+* [6. Deploy to Kubernetes](#6-deploy-to-kubernetes)
+* [7. Access Your Application](#7-access-your-application)
+* [8. Enable Pod Autoscaling (Optional)](#8-enable-pod-autoscaling-optional)
+* [9. Useful kubectl Commands](#9-useful-kubectl-commands)
+* [10. Cleanup](#10-cleanup)
 
-1. **ActuatorGuide.md**: A comprehensive guide explaining how to use Spring Boot Actuator, including:
-   - Available endpoints and their purposes
-   - How to access endpoints
-   - Using Actuator with Kubernetes
-   - Security considerations
+---
 
-2. **check-actuator.sh**: An executable script that demonstrates how to check Actuator endpoints using cURL.
+## 1. Prerequisites
 
-3. **PrometheusGrafanaGuide.md**: A detailed guide for monitoring your application with Prometheus and Grafana, including:
-   - Setting up Prometheus and Grafana using Docker Compose
-   - Accessing and using Prometheus
-   - Accessing and using Grafana
-   - Creating custom dashboards
-   - Common metrics to monitor
+* A Linux, macOS, or Windows (WSL2/Hyper-V) computer
+* [Docker](https://docs.docker.com/get-docker/) installed and running
+* Java application packaged as a JAR (e.g. `KubernatesPractice-0.0.1-SNAPSHOT.jar`)
+* Internet connection
 
-4. **BrowserAccessGuide.md**: A step-by-step guide explaining how to access all components from your web browser:
-   - Accessing the Spring Boot application
-   - Accessing Spring Boot Actuator endpoints
-   - Accessing and navigating Prometheus
-   - Accessing and navigating Grafana
-   - Troubleshooting access issues
+---
 
-5. **docker-compose.yml**: Ready-to-use Docker Compose configuration for setting up Prometheus and Grafana.
+## 2. Install Minikube & kubectl
 
-6. **start-monitoring.sh**: An all-in-one script that starts both the Spring Boot application and the monitoring stack (Prometheus and Grafana) with a single command.
-
-## How to Use These Resources
-
-### 1. Start the Application
-
-First, make sure the application is running:
+**Install kubectl:**
 
 ```bash
-./mvnw spring-boot:run
+curl -LO "https://storage.googleapis.com/kubernetes-release/release/$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)/bin/linux/amd64/kubectl"
+chmod +x kubectl
+sudo mv kubectl /usr/local/bin/
 ```
 
-The application will start on port 8083.
-
-### 2. Read the Guide
-
-Open `ActuatorGuide.md` to learn about Spring Boot Actuator and how it's configured in this application:
+**Install Minikube:**
 
 ```bash
-less ActuatorGuide.md
-# or open it in your favorite text editor
+curl -Lo minikube https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
+chmod +x minikube
+sudo mv minikube /usr/local/bin/
 ```
 
-### 3. Run the Check Script
+> For Mac/Windows, use the official [installation instructions](https://minikube.sigs.k8s.io/docs/start/).
 
-Use the provided script to check the Actuator endpoints:
+---
+
+## 3. Start Minikube
 
 ```bash
-./check-actuator.sh
+minikube start
 ```
 
-This script will:
-- Verify the application is running
-- List all available Actuator endpoints
-- Check key endpoints and display their output
-
-**Note**: The script requires `curl` and `jq` to be installed. If `jq` is not installed, you can install it with:
-```bash
-# For Debian/Ubuntu
-sudo apt-get install jq
-
-# For Red Hat/CentOS
-sudo yum install jq
-
-# For macOS
-brew install jq
-```
-
-### 4. Set Up Monitoring with Prometheus and Grafana
-
-To monitor your application with Prometheus and Grafana, you have two options:
-
-#### Option 1: Use the all-in-one script (recommended)
-
-Run the provided script to start both the application and the monitoring stack:
+(Optional, recommended for autoscaling):
 
 ```bash
-./start-monitoring.sh
+minikube addons enable metrics-server
 ```
 
-This script will:
-- Start the Spring Boot application
-- Start Prometheus and Grafana
-- Verify that everything is running
-- Show access information for all components
+---
 
-#### Option 2: Manual setup
+## 4. Prepare Your Application JAR & Config
 
-If you prefer to start components individually:
+1. **Build your JAR** (Maven example):
 
-1. Start the Spring Boot application:
    ```bash
-   ./mvnw spring-boot:run
+   ./mvnw clean package
    ```
 
-2. Start the monitoring stack:
+   Your JAR will be in the `target/` directory.
+
+2. **Create an app folder and copy your JAR:**
+
    ```bash
-   docker-compose up -d
+   mkdir -p /home/docker/app
+   cp target/KubernatesPractice-0.0.1-SNAPSHOT.jar /home/docker/app/
    ```
 
-3. Access Prometheus at:
-   ```
-   http://localhost:9090
-   ```
+3. **Create your config file** (`application-prod.properties`) as needed.
 
-4. Access Grafana at:
-   ```
-   http://localhost:3000
-   ```
-   Login with username `admin` and password `admin`
+---
 
-For detailed instructions, see the `PrometheusGrafanaGuide.md` file:
+## 5. Create Kubernetes YAML Manifests
+
+Create the following files in your project directory.
+
+---
+
+### a. **ConfigMap (for non-secret config)**
+
+Create `app-config.yaml`:
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+data:
+  gfbd_db_schema: "your_schema_name"
+  # Add more key-value pairs as needed
+```
+
+---
+
+### b. **Secret (for sensitive data)**
+
+Create `db-secret.yaml`:
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: db-secret
+type: Opaque
+data:
+  gfbd_db_pass: <BASE64_ENCODED_PASSWORD>
+  # Add more as needed
+```
+
+*To generate base64:*
+
 ```bash
-less PrometheusGrafanaGuide.md
-# or open it in your favorite text editor
+echo -n 'your_db_password' | base64
 ```
 
-### 5. Access All Components from Your Browser
+---
 
-For a comprehensive guide on how to access all components (Spring Boot application, Actuator, Prometheus, and Grafana) from your web browser:
+### c. **Jasypt Secret (for encryption password)**
+
+Create `jasypt-secret.yaml`:
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: jasypt-secret
+type: Opaque
+data:
+  JASYPT_ENCRYPTOR_PASSWORD: <BASE64_ENCODED_JASYPT_PASSWORD>
+```
+
+---
+
+### d. **Deployment (deploys your JAR as a pod)**
+
+Create `deployment.yaml`:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spring-boot-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: spring-boot-app
+  template:
+    metadata:
+      labels:
+        app: spring-boot-app
+    spec:
+      containers:
+        - name: spring-boot-app
+          image: openjdk:17-jdk-slim
+          command:
+            - "java"
+            - "-jar"
+            - "/app/KubernatesPractice-0.0.1-SNAPSHOT.jar"
+            - "--spring.config.location=file:/config/application-prod.properties"
+          ports:
+            - containerPort: 8081
+          env:
+            - name: SPRING_DATASOURCE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: db-config
+                  key: SPRING_DATASOURCE_URL
+            - name: gfbd_db_schema
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: gfbd_db_schema
+            - name: gfbd_db_pass
+              valueFrom:
+                secretKeyRef:
+                  name: db-secret
+                  key: gfbd_db_pass
+            - name: JASYPT_ENCRYPTOR_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: jasypt-secret
+                  key: JASYPT_ENCRYPTOR_PASSWORD
+            - name: JASYPT_ENCRYPTOR_ALGORITHM
+              value: PBEWithMD5AndDES
+          volumeMounts:
+            - name: jar-volume
+              mountPath: /app
+            - name: config-volume
+              mountPath: /config
+      volumes:
+        - name: jar-volume
+          hostPath:
+            path: /home/docker/app
+            type: Directory
+        - name: config-volume
+          configMap:
+            name: app-config
+```
+
+---
+
+### e. **Service (for network access)**
+
+Create `service.yaml`:
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: spring-boot-app-service
+spec:
+  selector:
+    app: spring-boot-app
+  type: NodePort
+  ports:
+    - port: 8081
+      targetPort: 8081
+      nodePort: 32081  # Optional: Set your own NodePort (range 30000-32767)
+```
+
+---
+
+## 6. Deploy to Kubernetes
+
+Apply all the manifests:
 
 ```bash
-less BrowserAccessGuide.md
-# or open it in your favorite text editor
+kubectl apply -f app-config.yaml
+kubectl apply -f db-secret.yaml
+kubectl apply -f jasypt-secret.yaml
+kubectl apply -f deployment.yaml
+kubectl apply -f service.yaml
 ```
 
-This guide provides:
-- Direct URLs for all components
-- Step-by-step navigation instructions
-- Login credentials where needed
-- Troubleshooting tips for access issues
+---
 
-## Actuator Configuration
+## 7. Access Your Application
 
-The application has Actuator configured in `src/main/resources/application.properties` with:
+1. **Get the NodePort of your service:**
 
-```properties
-# Enable all actuator endpoints
-management.endpoints.web.exposure.include=*
-# Show full health details
-management.endpoint.health.show-details=always
-# Enable health probes
-management.health.probes.enabled=true
+   ```bash
+   kubectl get svc
+   ```
+
+   Find the `PORT(S)` column for your service (e.g. `8081:32081/TCP`).
+
+2. **Get your Minikube IP:**
+
+   ```bash
+   minikube ip
+   ```
+
+3. **Open in browser:**
+
+   ```
+   http://<minikube-ip>:<node-port>
+   ```
+
+   Example: If Minikube IP is `192.168.49.2` and NodePort is `32081`,
+   visit: `http://192.168.49.2:32081`
+
+---
+
+## 8. Enable Pod Autoscaling (Optional)
+
+1. **Add resource requests/limits to your Deployment:**
+
+   ```yaml
+   resources:
+     requests:
+       cpu: "100m"
+       memory: "256Mi"
+     limits:
+       cpu: "500m"
+       memory: "512Mi"
+   ```
+
+   Add under your `containers:` section.
+
+2. **Enable metrics server (if not already):**
+
+   ```bash
+   minikube addons enable metrics-server
+   ```
+
+3. **Create an HPA:**
+
+   ```bash
+   kubectl autoscale deployment spring-boot-app --cpu-percent=50 --min=1 --max=10
+   ```
+
+4. **Check HPA status:**
+
+   ```bash
+   kubectl get hpa
+   ```
+
+---
+
+## 9. Useful kubectl Commands
+
+* List all deployments:
+
+  ```bash
+  kubectl get deployments
+  ```
+* List all pods:
+
+  ```bash
+  kubectl get pods
+  ```
+* List all services:
+
+  ```bash
+  kubectl get svc
+  ```
+* See pod details:
+
+  ```bash
+  kubectl describe pod <pod-name>
+  ```
+* View logs:
+
+  ```bash
+  kubectl logs <pod-name>
+  ```
+* Delete all resources (cleanup):
+
+  ```bash
+  kubectl delete -f service.yaml
+  kubectl delete -f deployment.yaml
+  kubectl delete -f app-config.yaml
+  kubectl delete -f db-secret.yaml
+  kubectl delete -f jasypt-secret.yaml
+  ```
+
+---
+
+## 10. Cleanup
+
+To remove everything:
+
+```bash
+kubectl delete -f service.yaml
+kubectl delete -f deployment.yaml
+kubectl delete -f app-config.yaml
+kubectl delete -f db-secret.yaml
+kubectl delete -f jasypt-secret.yaml
 ```
 
-## Kubernetes Integration
+To stop Minikube:
 
-This application is configured to work well with Kubernetes, with health probes enabled that can be used for liveness and readiness probes in your Kubernetes deployments.
+```bash
+minikube stop
+```
 
-See the `ActuatorGuide.md` file for specific examples of how to configure Kubernetes probes to use Spring Boot Actuator endpoints.
+To delete the Minikube VM:
 
-## Additional Resources
+```bash
+minikube delete
+```
 
-- [Spring Boot Actuator Documentation](https://docs.spring.io/spring-boot/docs/current/reference/html/actuator.html)
-- [Spring Boot Actuator API](https://docs.spring.io/spring-boot/docs/current/actuator-api/htmlsingle/)
-- [Kubernetes Probes](https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/)
-- [Prometheus Documentation](https://prometheus.io/docs/introduction/overview/)
-- [Grafana Documentation](https://grafana.com/docs/grafana/latest/)
-- [Micrometer Prometheus Registry](https://micrometer.io/docs/registry/prometheus)
+---
+
+## 📚 References
+
+* [Kubernetes Documentation](https://kubernetes.io/docs/)
+* [Minikube Documentation](https://minikube.sigs.k8s.io/docs/)
+* [Spring Boot](https://spring.io/projects/spring-boot)
+
+---
+
+Happy Coding! 🎉
