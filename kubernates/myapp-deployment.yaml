@@ -1,0 +1,116 @@
+# The API version of the Kubernetes resource type you are using.
+apiVersion: apps/v1
+
+# The type of resource. 'Deployment' manages stateless applications.
+kind: Deployment
+
+# Metadata contains basic information like the name of the deployment.
+metadata:
+  name: spring-boot-app   # The unique name for this Deployment resource.
+
+spec:
+  # Number of pod replicas (instances) to run.
+  replicas: 1
+
+  # Selector tells the Deployment how to find the Pods it manages.
+  selector:
+    matchLabels:
+      app: spring-boot-app   # Must match the labels under template.metadata.labels below.
+
+  # Template describes the pods that will be created by this deployment.
+  template:
+    metadata:
+      labels:
+        app: spring-boot-app # Labels help identify and group pods.
+
+    spec:
+      # List of containers that will run inside each Pod.
+      containers:
+        - name: spring-boot-app   # The name of this container.
+          image: openjdk:17-jdk-slim   # Docker image to use. Here, a lightweight OpenJDK 17 image.
+
+          # Override the default command; runs your Spring Boot JAR with specific config location.
+          command:
+            - "java"
+            - "-jar"
+            - "/app/KubernatesPractice-0.0.1-SNAPSHOT.jar"
+            - "--spring.config.location=file:/config/application-prod.properties"
+
+          # The port the application listens on inside the container.
+          ports:
+            - containerPort: 8081
+
+          # Environment variables for the container. Useful for secrets/configuration.
+          env:
+            # Reads database URL from a ConfigMap called 'db-config'
+            - name: SPRING_DATASOURCE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: db-config
+                  key: SPRING_DATASOURCE_URL
+
+            # The following are EXAMPLES (commented out). You can use secrets for sensitive data.
+            #            - name: SPRING_DATASOURCE_USERNAME
+            #              valueFrom:
+            #                secretKeyRef:
+            #                  name: mysql-secret
+            #                  key: SPRING_DATASOURCE_USERNAME
+            #            - name: SPRING_DATASOURCE_PASSWORD
+            #              valueFrom:
+            #                secretKeyRef:
+            #                  name: mysql-secret
+            #                  key: SPRING_DATASOURCE_PASSWORD
+            #            - name: JASYPT_ENCRYPTOR_PASSWORD
+            #              valueFrom:
+            #                secretKeyRef:
+            #                  name: jasypt-secret
+            #                  key: JASYPT_ENCRYPTOR_PASSWORD
+            #            - name: JASYPT_ENCRYPTOR_ALGORITHM
+            #              value: PBEWithMD5AndDES
+
+            # Custom app config value from ConfigMap 'app-config'
+            - name: gfbd_db_schema
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: gfbd_db_schema
+
+            # Database password from Secret 'db-secret'
+            - name: gfbd_db_pass
+              valueFrom:
+                secretKeyRef:
+                  name: db-secret
+                  key: gfbd_db_pass
+
+            # Jasypt password for encryption, pulled from Secret
+            - name: JASYPT_ENCRYPTOR_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: jasypt-secret
+                  key: JASYPT_ENCRYPTOR_PASSWORD
+
+            # Jasypt encryption algorithm (not secret, so set directly)
+            - name: JASYPT_ENCRYPTOR_ALGORITHM
+              value: PBEWithMD5AndDES
+
+          # Mounts volumes into the container.
+          volumeMounts:
+            # Mounts a hostPath directory containing your JAR file to /app inside the container.
+            - name: jar-volume
+              mountPath: /app
+            # Mounts the config volume (from ConfigMap) to /config directory inside the container.
+            - name: config-volume
+              mountPath: /config
+
+      # Declares volumes for the pod, to be mounted into containers.
+      volumes:
+        # Mounts a host directory into the pod (for your JAR file).
+        - name: jar-volume
+          hostPath:
+            path: /home/docker/app   # Directory on the Kubernetes node.
+            type: Directory
+
+        # Mounts a ConfigMap as a volume (for config files like application-prod.properties).
+        - name: config-volume
+          configMap:
+            name: app-config  # Name of the ConfigMap resource to use.
